@@ -405,6 +405,17 @@
   body.sheet-open .listen-ctl{bottom:auto;top:16px;right:16px}
   @media(max-width:560px){.listen-ctl{right:14px;bottom:14px}
     .lbtn{padding:11px 16px;font-size:.85rem}}
+  .sndtog{width:32px;height:32px;flex:none;border-radius:50%;cursor:pointer;
+    border:1px solid var(--line);background:var(--card);color:var(--muted);
+    display:inline-flex;align-items:center;justify-content:center;padding:0;
+    transition:color .2s,border-color .2s,transform .2s var(--ease)}
+  .sndtog:hover{color:var(--ink);border-color:var(--muted);transform:translateY(-1px)}
+  .sndtog:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+  .sndtog svg{width:15px;height:15px;display:block}
+  .sndtog .snd-off{display:none}
+  .sndtog[aria-pressed="false"]{opacity:.65}
+  .sndtog[aria-pressed="false"] .snd-on{display:none}
+  .sndtog[aria-pressed="false"] .snd-off{display:block}
   @media (prefers-reduced-motion:reduce){
     *{animation:none!important;transition:none!important}
     .step{display:none}.step.is-active{display:block}
@@ -425,6 +436,10 @@
       </div>
     </div>
     <div class="progress">
+      <button class="sndtog" id="sndTog" type="button" aria-pressed="true" aria-label="Interface sounds: on. Activate to mute.">
+        <span class="snd-on" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h3l5-4v14l-5-4H4z" fill="currentColor" stroke="none"/><path d="M15.5 8.5a4 4 0 0 1 0 7"/><path d="M18 6a7.5 7.5 0 0 1 0 12"/></svg></span>
+        <span class="snd-off" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h3l5-4v14l-5-4H4z" fill="currentColor" stroke="none"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg></span>
+      </button>
       <span class="pcount" id="pcount">01 / 06</span>
       <div class="ptrack"><div class="pfill" id="pfill"></div></div>
     </div>
@@ -978,6 +993,87 @@
   window.addEventListener("pagehide",function(){ synth.cancel(); });
 
   uiIdle();
+})();
+</script>
+
+<script>
+(function(){
+  "use strict";
+  var ON=true, ctx=null, master=null;
+  function ensure(){
+    if(ctx){ if(ctx.state==="suspended") ctx.resume(); return ctx; }
+    var AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC) return null;
+    ctx=new AC();
+    master=ctx.createGain(); master.gain.value=0.9;
+    var lp=ctx.createBiquadFilter(); lp.type="lowpass";
+    lp.frequency.value=2600; lp.Q.value=0.6;
+    master.connect(lp); lp.connect(ctx.destination);
+    return ctx;
+  }
+  function note(freq,start,dur,vol,type){
+    var t0=ctx.currentTime+start;
+    var o=ctx.createOscillator(); o.type=type||"sine"; o.frequency.value=freq;
+    var g=ctx.createGain();
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(vol,t0+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0+dur+0.03);
+  }
+  var SND={
+    tap:   function(){ note(587,0,0.10,0.045); },
+    reveal:function(){ note(880,0,0.09,0.05); },
+    fwd:   function(){ note(523.25,0,0.11,0.055); note(783.99,0.075,0.17,0.05); },
+    back:  function(){ note(392,0,0.17,0.05); },
+    good:  function(){ note(523.25,0,0.10,0.05); note(659.25,0.085,0.10,0.05); note(783.99,0.17,0.24,0.055); },
+    soft:  function(){ note(440,0,0.21,0.045,"triangle"); },
+    done:  function(){ note(523.25,0,0.16,0.05); note(659.25,0.13,0.17,0.05); note(783.99,0.27,0.42,0.06); }
+  };
+  function play(name){
+    if(!ON) return;
+    if(!ensure()) return;
+    try{ (SND[name]||SND.tap)(); }catch(e){}
+  }
+
+  var tog=document.getElementById("sndTog");
+  if(tog){
+    tog.addEventListener("click",function(){
+      ON=!ON;
+      tog.setAttribute("aria-pressed", ON?"true":"false");
+      tog.setAttribute("aria-label", ON
+        ? "Interface sounds: on. Activate to mute."
+        : "Interface sounds: off. Activate to unmute.");
+      if(ON){ ensure(); play("tap"); }
+    });
+  }
+
+  document.addEventListener("click",function(e){
+    var t=e.target;
+    if(t.closest && (t.closest("#sndTog")||t.closest("#listenCtl"))) return;
+    var go=t.closest && t.closest("[data-go]");
+    if(go){
+      var g=go.getAttribute("data-go");
+      play(g==="next"?"fwd":g==="prev"?"back":g==="restart"?"fwd":"tap");
+      return;
+    }
+    if(t.closest && t.closest(".hot")){ play("reveal"); return; }
+    var opt=t.closest && t.closest(".opt");
+    if(opt){
+      if(opt.disabled) return;
+      play(opt.getAttribute("data-correct")==="1" ? "good" : "soft");
+      return;
+    }
+    if(t.closest && (t.closest(".ptab")||t.closest(".chip"))){ play("tap"); return; }
+    if(t.closest && (t.closest("#sheetx")||t.closest("#sheetbg"))){ play("back"); return; }
+  },false);
+
+  var last=document.querySelector('.step[data-step="6"]');
+  if(last){
+    new MutationObserver(function(){
+      if(last.classList.contains("is-active")) play("done");
+    }).observe(last,{attributes:true,attributeFilter:["class"]});
+  }
 })();
 </script>
 </body>
